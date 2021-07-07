@@ -10,7 +10,6 @@ import com.intellij.util.EncodingEnvironmentUtil
 import com.jediterm.pty.PtyProcessTtyConnector
 import com.jediterm.terminal.LoggingTtyConnector
 import com.jediterm.terminal.TtyConnector
-import com.jediterm.terminal.model.TerminalTypeAheadManager
 import com.jediterm.terminal.ui.AbstractTerminalFrame
 import com.jediterm.terminal.ui.TerminalWidget
 import com.jediterm.terminal.ui.UIUtil
@@ -112,11 +111,7 @@ class JediTerm : AbstractTerminalFrame(), Disposable {
         return widget
     }
 
-    class LoggingPtyProcessTtyConnector(
-        process: PtyProcess,
-        charset: Charset,
-        typeAheadManager: TerminalTypeAheadManager
-    ) : PtyProcessTtyConnector(process, charset, typeAheadManager), LoggingTtyConnector {
+    class LoggingPtyProcessTtyConnector(process: PtyProcess, charset: Charset) : PtyProcessTtyConnector(process, charset), LoggingTtyConnector {
         private val myDataChunks = Lists.newArrayList<CharArray>()
 
         @Throws(IOException::class)
