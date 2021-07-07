@@ -3,7 +3,6 @@ package com.jediterm.terminal.model;
 import com.jediterm.terminal.TextStyle;
 import com.jediterm.terminal.ui.settings.SettingsProvider;
 import org.apache.log4j.Logger;
-import org.checkerframework.checker.units.qual.C;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -146,8 +145,7 @@ public class TerminalTypeAheadManager {
             break;
         }
 
-        // TODO:
-    /*
+    /* TODO:
     		if (this._timeline.length === 1) {
 			this._deferClearingPredictions();
 			this._typeaheadStyle!.startTracking();
@@ -178,6 +176,21 @@ public class TerminalTypeAheadManager {
         Unknown,
         HasPendingChar,
         Validated,
+    }
+
+    enum CursorMoveDirection {
+        Back('D'),
+        Forwards('C');
+
+        private char myDirection;
+
+        CursorMoveDirection(char direction) {
+            myDirection = direction;
+        }
+
+        char getDirection() {
+            return myDirection;
+        }
     }
 
     class ICoordinate {
@@ -355,6 +368,27 @@ public class TerminalTypeAheadManager {
 
     class CharacterPrediction implements IPrediction {
 
+        private class AppliedAt { // FIXME: how to properly create structures just for one variable?
+            ICoordinate myPos;
+            String myOldAttributes;
+            String myOldChar; // FIXME: string character???
+
+            AppliedAt(ICoordinate pos, String oldAttributes, String oldChar) {
+                myPos = pos;
+                myOldAttributes = oldAttributes;
+                myOldChar = oldChar;
+            }
+        }
+
+        AppliedAt myAppliedAt;
+        TypeaheadStyle myStyle;
+        char myChar;
+
+        CharacterPrediction(TypeaheadStyle style, char character) {
+            myStyle = style;
+            myChar = character;
+        }
+
         @Override
         public boolean getAffectsStyle() {
             return true;
@@ -365,10 +399,99 @@ public class TerminalTypeAheadManager {
             return true;
         }
 
-        // TODO: continue
+        @Override
+        public String apply(IBuffer buffer, Cursor cursor) {
+            // TODO: cell = cursor.getCell();
+            if (cell != null) {
+                myAppliedAt = new AppliedAt(cursor, attributesToSeq(cell), cell.getChars());
+            } else {
+                myAppliedAt = new AppliedAt(cursor, "", "");
+            }
+
+            cursor.shift(1, 0);
+
+            return myStyle.apply + myChar + myStyle.undo;
+        }
+
+        @Override
+        public String rollback(Cursor cursor) {
+            if (myAppliedAt == null) {
+                return "";
+            }
+
+            if (!myAppliedAt.myOldChar.isBlank()) {
+                return cursor.moveTo(myAppliedAt.myPos)
+                        + myAppliedAt.myOldAttributes
+                        + myAppliedAt.myOldChar
+                        + cursor.moveTo(myAppliedAt.myPos);
+            } else {
+                return cursor.moveTo(myAppliedAt.myPos) + DELETE_CHAR;
+            }
+        }
+
+        @Override
+        public String rollForwards(Cursor cursor, String withInput) {
+            if (myAppliedAt == null) {
+                return "";
+            }
+
+            return cursor.cloneCursor().moveTo(myAppliedAt.myPos) + withInput;
+        }
+
+        @Override
+        public MatchResult matches(TypeaheadStringReader input, IPrediction lookBehind) {
+            int startIndex = input.myIndex;
+
+            // remove any styling CSI before checking the char
+            String eaten;
+            do {
+                eaten = input.eatRe(CSI_STYLE_RE);
+            } while (eaten != null && !eaten.isEmpty());
+
+            if (input.eof()) {
+                return MatchResult.Buffer;
+            }
+
+            if (input.eatChar(myChar) != null) {
+                return MatchResult.Success;
+            }
+
+            if (lookBehind instanceof CharacterPrediction) {
+                // vscode #112842
+                MatchResult sillyZshOutcome = input.eatGradually("\b" + ((CharacterPrediction) lookBehind).myChar + myChar);
+                if (sillyZshOutcome != MatchResult.Failure) {
+                    return sillyZshOutcome;
+                }
+            }
+
+            input.myIndex = startIndex;
+            return MatchResult.Failure;
+        }
     }
 
     class BackspacePrediction implements IPrediction {
+
+        private class AppliedAt { // FIXME: how to properly create structures just for one variable?
+            ICoordinate myPos;
+            String myOldAttributes;
+            String myOldChar; // FIXME: string character???
+            boolean myIsLastChar;
+
+            AppliedAt(ICoordinate pos, String oldAttributes, String oldChar, boolean isLastChar) {
+                myPos = pos;
+                myOldAttributes = oldAttributes;
+                myOldChar = oldChar;
+                myIsLastChar = isLastChar;
+            }
+        }
+
+        AppliedAt myAppliedAt;
+        VsCodeTerminal myTerminal;
+
+        BackspacePrediction(VsCodeTerminal terminal) {
+            myTerminal = terminal;
+        }
+
         @Override
         public boolean getAffectsStyle() {
             return false; // TODO: double check
@@ -379,7 +502,58 @@ public class TerminalTypeAheadManager {
             return true;
         }
 
-        // TODO: appliedAt + continue
+        @Override
+        public String apply(IBuffer buffer, Cursor cursor) {
+            // at eol if everything to the right is whitespace (zsh will emit a "clear line" code in this case)
+
+            boolean isLastChar = cursor.getLine().getText().trim().isBlank(); // TODO: .getLine()?.translateToString(undefined, cursor.x).trim();
+            ICoordinate pos = cursor;
+            String move = cursor.shift(-1, 0);
+            Cell cell = cursor.getCell();
+            myAppliedAt = cell != null
+                    ? new AppliedAt(pos, attributesToSeq(cell), cell.getChars(), isLastChar)
+                    : new AppliedAt(pos, "", "", isLastChar);
+
+            return move + DELETE_CHAR;
+        }
+
+        @Override
+        public String rollback(Cursor cursor) {
+            if (myAppliedAt == null) {
+                return "";
+            }
+
+            if (myAppliedAt.myOldChar.isEmpty()) {
+                return cursor.moveTo(myAppliedAt.myPos) + DELETE_CHAR;
+            }
+
+            return myAppliedAt.myOldAttributes
+                    + myAppliedAt.myOldChar
+                    + cursor.moveTo(myAppliedAt.myPos);
+                    // TODO:  + attributesToSeq(core(this._terminal)._inputHandler._curAttrData);
+        }
+
+        @Override
+        public String rollForwards(Cursor cursor, String withInput) {
+            return "";
+        }
+
+        @Override
+        public MatchResult matches(TypeaheadStringReader input, IPrediction lookBehind) {
+            if (myAppliedAt != null && myAppliedAt.myIsLastChar) {
+                MatchResult r1 = input.eatGradually("\b" + CSI + "K");
+                if (r1 != MatchResult.Failure) {
+                    return r1;
+                }
+
+                MatchResult r2 = input.eatGradually("\b \b");
+                if (r2 != MatchResult.Failure) {
+                    return r2;
+                }
+            }
+
+            return MatchResult.Failure;
+        }
     }
 
     class NewlinePrediction implements IPrediction {
@@ -429,10 +603,10 @@ public class TerminalTypeAheadManager {
         @Override
         public MatchResult matches(TypeaheadStringReader input, IPrediction lookBehind) {
             // bash and zshell add a space which wraps in the terminal, then a CR
-		    MatchResult r = input.eatGradually(" \r");
+            MatchResult r = input.eatGradually(" \r");
             if (r != MatchResult.Failure) {
                 // zshell additionally adds a clear line after wrapping to be safe -- eat it
-			    MatchResult r2 = input.eatGradually(DELETE_REST_OF_LINE);
+                MatchResult r2 = input.eatGradually(DELETE_REST_OF_LINE);
                 return r2 == MatchResult.Buffer ? MatchResult.Buffer : r;
             }
 
@@ -441,7 +615,21 @@ public class TerminalTypeAheadManager {
     }
 
     class CursorMovePrediction implements IPrediction {
-        // TODO: applied?
+        private class Applied {
+            String myRollForward;
+            int myPrevPosition;
+            String myPrevAttrs;
+            int myAmount;
+
+            Applied(String rollForward, int prevPosition, String prevAttrs, int amount) {
+                myRollForward = rollForward;
+                myPrevPosition = prevPosition;
+                myPrevAttrs = prevAttrs;
+                myAmount = amount;
+            }
+        }
+
+        Applied myApplied;
         private CursorMoveDirection myDirection;
         private boolean myMoveByWords;
         private int myAmount;
@@ -457,44 +645,44 @@ public class TerminalTypeAheadManager {
 
     static class TypeaheadStringReader {
         private final String myString;
-        private int index = 0;
+        private int myIndex = 0;
 
         TypeaheadStringReader(String string) {
             myString = string;
         }
 
         int remaining() {
-            return myString.length() - index;
+            return myString.length() - myIndex;
         }
 
         boolean eof() {
-            return myString.length() == index;
+            return myString.length() == myIndex;
         }
 
         String rest() {
-            return myString.substring(index);
+            return myString.substring(myIndex);
         }
 
         Character eatChar(char character) {
-            if (myString.charAt(index) != character) {
+            if (myString.charAt(myIndex) != character) {
                 return null;
             }
 
-            index++;
+            myIndex++;
             return character;
         }
 
         String eatStr(String substr) {
-            if (!myString.substring(index, substr.length()).equals(substr)) {
+            if (!myString.substring(myIndex, substr.length()).equals(substr)) {
                 return null;
             }
 
-            index += substr.length();
+            myIndex += substr.length();
             return substr;
         }
 
         MatchResult eatGradually(String substr) {
-            int prevIndex = index;
+            int prevIndex = myIndex;
 
             for (int i = 0; i < substr.length(); ++i) {
                 if (i > 0 && eof()) {
@@ -502,7 +690,7 @@ public class TerminalTypeAheadManager {
                 }
 
                 if (eatChar(substr.charAt(i)) == null) {
-                    this.index = prevIndex;
+                    this.myIndex = prevIndex;
                     return MatchResult.Failure;
                 }
             }
@@ -512,7 +700,7 @@ public class TerminalTypeAheadManager {
 
         String eatRe(Pattern pattern) {
             // TODO: verify correctness
-            Matcher matcher = pattern.matcher(myString.substring(index));
+            Matcher matcher = pattern.matcher(myString.substring(myIndex));
             if (!matcher.matches()) {
                 return null;
             }
@@ -520,7 +708,7 @@ public class TerminalTypeAheadManager {
             java.util.regex.MatchResult match = matcher.toMatchResult();
 
 
-            index += matcher.end();
+            myIndex += matcher.end();
             return match.group();
         }
 
@@ -529,12 +717,12 @@ public class TerminalTypeAheadManager {
         }
 
         Integer eatCharCode(int min, int max) {
-            int code = myString.charAt(this.index);
+            int code = myString.charAt(this.myIndex);
             if (code < min || code >= max) {
                 return null;
             }
 
-            this.index++;
+            this.myIndex++;
             return code;
         }
     }
@@ -593,7 +781,7 @@ public class TerminalTypeAheadManager {
         }
 
         void undoAllPredictions() {
-            ??? buffer = getActiveBuffer();
+            ???buffer = getActiveBuffer();
             /* TODO
             if (this._showPredictions && buffer) {
                 this.terminal.write(this._currentGenerationPredictions.reverse()

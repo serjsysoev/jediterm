@@ -2,6 +2,7 @@ package com.jediterm.terminal;
 
 import com.jediterm.terminal.emulator.Emulator;
 import com.jediterm.terminal.emulator.JediEmulator;
+import com.jediterm.terminal.model.TerminalTypeAheadManager;
 import org.apache.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
@@ -31,11 +32,12 @@ public class TerminalStarter implements TerminalOutputStream {
 
   private final ScheduledExecutorService myEmulatorExecutor = Executors.newSingleThreadScheduledExecutor();
 
-  public TerminalStarter(final Terminal terminal, final TtyConnector ttyConnector, TerminalDataStream dataStream) {
+  public TerminalStarter(final Terminal terminal, final TtyConnector ttyConnector, TerminalDataStream dataStream, TerminalTypeAheadManager typeAheadManager) {
     myTtyConnector = ttyConnector;
     myTerminal = terminal;
     myTerminal.setTerminalOutput(this);
     myEmulator = createEmulator(dataStream, terminal);
+    myType
   }
 
   protected JediEmulator createEmulator(TerminalDataStream dataStream, Terminal terminal) {
