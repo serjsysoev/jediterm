@@ -93,6 +93,14 @@ public class TerminalStarter implements TerminalOutputStream {
     ttyConnector.resize(newTermSize);
   }
 
+  private void execute(Runnable runnable, int delayMillis) {
+    if (!myEmulatorExecutor.isShutdown()) {
+      myEmulatorExecutor.schedule(runnable, delayMillis, TimeUnit.MILLISECONDS);
+    }
+  }
+
+  private final int LATENCY = 1000;
+
   @Override
   public void sendBytes(final byte[] bytes) {
     execute(() -> {
@@ -102,7 +110,7 @@ public class TerminalStarter implements TerminalOutputStream {
       catch (IOException e) {
         throw new RuntimeException(e);
       }
-    });
+    }, LATENCY);
   }
 
   @Override
@@ -114,7 +122,7 @@ public class TerminalStarter implements TerminalOutputStream {
       catch (IOException e) {
         throw new RuntimeException(e);
       }
-    });
+    }, LATENCY);
   }
 
   public void close() {
