@@ -41,6 +41,10 @@ public class JediTermTypeAheadModel implements TypeAheadTerminalModel {
     setTypeAheadLine(typeAheadLine);
   }
 
+  public void forceRedraw() {
+    myTerminalTextBuffer.fireModelChangeEvent();
+  }
+
   @Override
   public void moveCursor(int index) {}
 
@@ -48,7 +52,6 @@ public class JediTermTypeAheadModel implements TypeAheadTerminalModel {
   public void clearPredictions() {
     if (isPredictionsApplied) {
       myTerminalTextBuffer.clearTypeAheadPredictions();
-      myTerminalTextBuffer.fireModelChangeEvent();
     }
     isPredictionsApplied = false;
   }
