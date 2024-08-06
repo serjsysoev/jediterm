@@ -1,7 +1,5 @@
 package com.jediterm.example;
 
-import com.google.common.base.Ascii;
-import com.jediterm.terminal.Questioner;
 import com.jediterm.terminal.TtyConnector;
 import com.jediterm.terminal.ui.JediTermWidget;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
@@ -13,7 +11,7 @@ import java.io.PipedReader;
 import java.io.PipedWriter;
 
 public class BasicTerminalExample {
-  private static final char ESC = Ascii.ESC;
+  private static final char ESC = 27;
 
   private static void writeTerminalCommands(@NotNull PipedWriter writer) throws IOException {
     writer.write(ESC + "%G");
@@ -60,11 +58,6 @@ public class BasicTerminalExample {
       } catch (IOException e) {
         throw new RuntimeException(e);
       }
-    }
-
-    @Override
-    public boolean init(Questioner q) {
-      return true;
     }
 
     @Override
